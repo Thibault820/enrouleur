@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px)}img{max-width:100%}</style>
+<title>Enrouleur LoRa</title>
+<style>
+/* Layout : reprise de l'interface proposée — barre latérale (ordinateur) / barre d'onglets en bas (téléphone), tuiles chiffrées + anneau d'avancement, cartes Irrigation / Pression / LoRa / Météo. Thème sombre unique, choisi. */
+:root{
+  color-scheme:dark;
+  --bg:#0a1611; --side:#0d1b15; --surface:#11211a; --tile:#152820; --line:#20382c;
+  --ink:#e7f2eb; --muted:#8ba697; --accent:#34c477; --accent-soft:#163a28;
+  --warn:#e3a93c; --warn-soft:#3a2d12; --crit:#ef625a; --crit-soft:#3d1918; --info:#4ea6e2; --info-soft:#132e40;
+  --f-ui: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --f-num: ui-monospace,"SF Mono","Roboto Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-ui);font-size:15px;line-height:1.4;margin:0}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Structure */
+.app{display:grid;min-height:100%}
+.side{display:none}
+.main{padding-inline:16px;padding-block:14px 96px;display:grid;gap:14px;align-content:start;min-width:0;max-width:1180px;width:100%;margin:0 auto}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(4,1fr);background:var(--side);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.tabbar a{display:grid;justify-items:center;gap:3px;padding:9px 4px;color:var(--muted);text-decoration:none;font-size:12px;position:relative}
+.tabbar a[aria-current="page"]{color:var(--accent)}
+.tabbar svg,.nav svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.badge{background:var(--crit);color:#fff;border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;display:inline-grid;place-items:center;padding:0 5px}
+.tabbar .badge{position:absolute;top:4px;left:calc(50% + 6px)}
+@media (min-width:900px){
+  .app{grid-template-columns:230px minmax(0,1fr)}
+  .side{display:flex;flex-direction:column;gap:18px;background:var(--side);border-right:1px solid var(--line);padding:20px 14px;position:sticky;top:0;height:100vh}
+  .tabbar{display:none}
+  .main{padding-block:20px 40px}
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+.brand b{color:var(--accent)}
+.leaf{width:30px;height:30px}
+.nav{display:grid;gap:4px}
+.nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--ink);text-decoration:none}
+.nav a:hover{background:var(--tile)}
+.nav a[aria-current="page"]{background:var(--accent);color:#06170e;font-weight:600}
+.nav .badge{margin-left:auto}
+.farm{margin-top:auto;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--muted)}
+.farm b{color:var(--ink);display:block}
+
+/* En-tête */
+.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+.top h1{font-size:19px;font-weight:600}
+.top .mbrand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:18px}
+.top .mbrand b{color:var(--accent)}
+.toptools{display:flex;align-items:center;gap:14px;font-size:13px;color:var(--muted)}
+.lnk{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.lnk.ok{color:var(--accent)} .lnk.warn{color:var(--warn)} .lnk.crit{color:var(--crit)}
+.lnk svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+@media (min-width:900px){.top .mbrand{display:none}}
+@media (max-width:899px){.top h1{display:none}}
+.banner{border:1px dashed var(--warn);background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:13px}
+
+/* Cartes et tuiles */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:12px;min-width:0;align-content:start}
+.card h2{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card h2 svg{width:20px;height:20px;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tile{background:var(--tile);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;min-width:0}
+.tile .ic{flex:none;width:34px;height:34px;color:var(--muted)}
+.tile .ic svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font-size:22px;font-weight:700;white-space:nowrap}
+.tile .v small{font-size:13px;font-weight:500;color:var(--muted)}
+.tile .v.acc{color:var(--accent)}
+.kpi{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (min-width:640px){.kpi{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.dashtop{display:grid;gap:14px}
+@media (min-width:1100px){.dashtop{grid-template-columns:minmax(0,1fr) 230px}}
+.ringcard{display:grid;place-items:center;gap:6px;text-align:center}
+.ring{width:170px;height:170px}
+.ring text{fill:var(--ink);font-family:var(--f-num);font-weight:700}
+.ringcard .k{color:var(--muted)}
+.prog{display:grid;gap:6px}
+.bar{position:relative;height:12px;background:var(--tile);border-radius:999px;border:1px solid var(--line)}
+.bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#1f9c58,var(--accent));border-radius:999px}
+.bar b{position:absolute;top:50%;width:4px;height:22px;background:var(--ink);border-radius:2px;transform:translate(-50%,-50%)}
+.barlbl{position:relative;height:16px;font-size:12px;color:var(--muted)}
+.barlbl span{position:absolute;white-space:nowrap}
+.g2{display:grid;gap:14px}
+@media (min-width:760px){.g2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.mini{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.mini.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:520px){.mini.three{grid-template-columns:repeat(2,minmax(0,1fr))}.ring{width:140px;height:140px}}
+.m{background:var(--tile);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:2px;min-width:0}
+.m .k{font-size:12px;color:var(--muted)}
+.m .v{font-size:18px;font-weight:700}
+.m .v.ok{color:var(--accent)} .m .v.warn{color:var(--warn)} .m .v.crit{color:var(--crit)}
+.m.alarm{background:var(--crit-soft);border-color:var(--crit)}
+.m.alarm .v{color:var(--crit)}
+.sig{display:inline-flex;align-items:flex-end;gap:2px;height:16px;margin-right:6px;vertical-align:-2px}
+.sig i{width:4px;background:var(--line);border-radius:1px}
+.sig i.on{background:var(--accent)}
+.note{font-size:12px;color:var(--muted);margin:0}
+
+/* Boutons, champs */
+.btn{border-radius:10px;border:1px solid var(--accent);background:transparent;color:var(--accent);padding:9px 14px;font-weight:600}
+.btn:hover{background:var(--accent-soft)}
+.btn.solid{background:var(--accent);color:#06170e}
+.btn.danger{border-color:var(--crit);color:var(--crit)}
+.btn.danger:hover{background:var(--crit-soft)}
+.btn[aria-pressed="true"]{background:var(--accent);color:#06170e}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.confirm{border:1px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:12px;display:grid;gap:10px}
+.field{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.field input,.field select{background:var(--tile);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;color:var(--ink);font-family:var(--f-num)}
+.queue{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13px}
+.queue li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.st{white-space:nowrap}
+.st.attente{color:var(--warn)} .st.recue{color:var(--info)} .st.faite{color:var(--accent)}
+
+/* Onglets segmentés */
+.seg{display:flex;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:12px;padding:4px;width:max-content;max-width:100%;overflow-x:auto}
+.seg button{border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:9px;font-weight:600;white-space:nowrap}
+.seg button[aria-selected="true"]{background:var(--accent);color:#06170e}
+
+/* Alertes */
+.alist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.al{border-radius:12px;border:1px solid var(--line);padding:12px 14px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:start}
+.al svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.al b{display:block}
+.al p{margin:2px 0 0;font-size:13px;color:var(--muted)}
+.al time{font-size:12px;color:var(--muted);white-space:nowrap}
+.al.crit{background:var(--crit-soft);border-color:#6b2522;color:var(--crit)}
+.al.warn{background:var(--warn-soft);border-color:#5e4718;color:var(--warn)}
+.al.info{background:var(--info-soft);border-color:#1d4560;color:var(--info)}
+.al.ok{background:var(--accent-soft);border-color:#215a3b;color:var(--accent)}
+.al .ack{grid-column:2/4;justify-self:start;font-size:12px;padding:5px 10px}
+.empty{color:var(--muted);font-size:14px;padding:10px 0}
+
+/* Historique */
+.sess{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.sess li{background:var(--tile);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 14px;align-items:center}
+.sess .d{font-weight:600}
+.sess .s{font-size:13px;color:var(--muted)}
+.sess .ok{color:var(--accent);font-size:13px;font-weight:600}
+.sess .ko{color:var(--warn);font-size:13px;font-weight:600}
+.chart{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-family:var(--f-num);font-size:10px}
+
+/* Réglages */
+.set{display:grid;gap:2px}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow .lab{min-width:0}
+.srow .lab small{display:block;color:var(--muted);font-size:12px}
+.step{display:flex;align-items:center;gap:6px;flex:none}
+.step output{min-width:78px;text-align:right;font-weight:700}
+.step button{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--tile);font-size:18px;line-height:1}
+.sw{position:relative;width:46px;height:26px;flex:none;border-radius:999px;border:1px solid var(--line);background:var(--tile);padding:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--muted);transition:left .15s}
+.sw[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.sw[aria-checked="true"]::after{left:23px;background:#06170e}
+.pgrid{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (min-width:640px){.pgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.simu{border-style:dashed;border-color:var(--warn)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-reel" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-donut" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-width="4" stroke-dasharray="32 50"/></symbol>
+  <symbol id="i-ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-width="4" opacity=".45"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M12 13l-2 4h4l-2 4"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-ant" viewBox="0 0 24 24"><path d="M12 12v9M8.5 8.5a5 5 0 0 1 7 0M5.6 5.6a9 9 0 0 1 12.8 0"/><circle cx="12" cy="11.5" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></symbol>
+  <symbol id="i-cmd" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h6"/><path d="M17 15l3 3-3 3"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+  <symbol id="i-batt" viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M10 2h4M10 10h4M10 14h4"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand"><svg class="leaf" viewBox="0 0 32 32"><path d="M6 26C6 12 14 5 28 4c0 14-7 22-20 22" fill="var(--accent)"/><path d="M6 26c5-7 10-11 16-15" stroke="var(--bg)" stroke-width="2" fill="none"/></svg><span>Enrouleur <b>LoRa</b></span></div>
+    <nav class="nav" aria-label="Sections">
+      <a href="#dash" data-v="dash"><svg><use href="#i-home"/></svg>Tableau de bord</a>
+      <a href="#alertes" data-v="alertes"><svg><use href="#i-bell"/></svg>Alertes<span class="badge" data-badge hidden></span></a>
+      <a href="#historique" data-v="historique"><svg><use href="#i-hist"/></svg>Historique</a>
+      <a href="#reglages" data-v="reglages"><svg><use href="#i-gear"/></svg>Réglages</a>
+    </nav>
+    <div class="farm"><b>EARL BIZET</b>Enrouleur 1</div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <div class="mbrand"><svg class="leaf" viewBox="0 0 32 32" width="26" height="26"><path d="M6 26C6 12 14 5 28 4c0 14-7 22-20 22" fill="var(--accent)"/></svg><span>Enrouleur <b>LoRa</b></span></div>
+      <h1 id="vTitle">Suivi et pilotage de l'enrouleur</h1>
+      <div class="toptools"><span class="lnk ok" id="lnkTop"><svg><use href="#i-wifi"/></svg><span>LoRa connecté</span></span><span class="num" id="clock">—</span></div>
+    </div>
+    <div class="banner" id="banner">Simulation : données fictives, aucune carte connectée. Horloge accélérée ×60, réglable en bas du tableau de bord.</div>
+
+    <!-- ============ TABLEAU DE BORD ============ -->
+    <section data-view="dash" class="main" style="padding:0;gap:14px">
+      <div class="dashtop">
+        <div class="kpi">
+          <div class="tile"><span class="ic"><svg><use href="#i-reel"/></svg></span><div><div class="k">Longueur totale</div><div class="v num" id="kLong">—</div></div></div>
+          <div class="tile"><span class="ic" style="color:var(--accent)"><svg><use href="#i-donut"/></svg></span><div><div class="k">Déjà enroulé</div><div class="v num" id="kEnr">—</div></div></div>
+          <div class="tile"><span class="ic"><svg><use href="#i-ring"/></svg></span><div><div class="k">Reste à enrouler</div><div class="v num acc" id="kRest">—</div></div></div>
+          <div class="tile"><span class="ic"><svg><use href="#i-gauge"/></svg></span><div><div class="k">Vitesse</div><div class="v num" id="kVit">—</div></div></div>
+          <div class="tile"><span class="ic"><svg><use href="#i-clock"/></svg></span><div><div class="k">Temps restant</div><div class="v num" id="kTps">—</div></div></div>
+          <div class="tile"><span class="ic"><svg><use href="#i-cal"/></svg></span><div><div class="k">Heure estimée de fin</div><div class="v num" id="kFin">—</div></div></div>
+        </div>
+        <div class="card ringcard">
+          <svg class="ring" viewBox="0 0 170 170" id="ring" role="img" aria-label="Avancement"></svg>
+          <span class="k" id="ringLbl">Avancement</span>
+        </div>
+      </div>
+
+      <div class="card prog">
+        <h2>Avancement</h2>
+        <div class="bar"><i id="pFill"></i><b id="pMark"></b></div>
+        <div class="barlbl num"><span style="left:0">0 m</span><span id="pMid"></span><span id="pTot" style="right:0"></span></div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <h2><svg style="stroke:var(--info)"><use href="#i-drop"/></svg>Irrigation</h2>
+          <div class="mini">
+            <div class="m"><span class="k">Dose cible</span><span class="v num" id="iDose">—</span></div>
+            <div class="m"><span class="k">Dose réelle</span><span class="v num" id="iDoseR">—</span></div>
+            <div class="m"><span class="k">Débit</span><span class="v num" id="iDeb">—</span></div>
+            <div class="m"><span class="k">Largeur arrosée</span><span class="v num" id="iLarg">—</span></div>
+            <div class="m"><span class="k">Consigne vitesse</span><span class="v num" id="iCons">—</span></div>
+            <div class="m"><span class="k">Écart vitesse</span><span class="v num" id="iEcart">—</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2><svg style="stroke:var(--accent)"><use href="#i-shield"/></svg>Pression et sécurité</h2>
+          <div class="mini">
+            <div class="m" id="sPresBox"><span class="k">Pression</span><span class="v num" id="sPres">—</span></div>
+            <div class="m"><span class="k">Seuil alerte</span><span class="v num" id="sSeuil">—</span></div>
+            <div class="m"><span class="k">Vanne</span><span class="v" id="sVanne">—</span></div>
+            <div class="m"><span class="k">Fin de course</span><span class="v" id="sFdc">—</span></div>
+          </div>
+          <div class="m"><span class="k">Alerte pression</span><span class="v" id="sAlP">—</span></div>
+        </div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <h2><svg style="stroke:var(--accent)"><use href="#i-ant"/></svg>Liaison LoRa</h2>
+          <div class="mini three">
+            <div class="m"><span class="k">Liaison</span><span class="v" id="lQual">—</span></div>
+            <div class="m"><span class="k">Batterie boîtier</span><span class="v num" id="lBat">—</span></div>
+            <div class="m"><span class="k">Dernier message</span><span class="v num" id="lAge">—</span></div>
+          </div>
+          <p class="note num" id="lDet">—</p>
+        </div>
+        <div class="card">
+          <h2><svg style="stroke:var(--warn)"><use href="#i-sun"/></svg>Météo de la parcelle</h2>
+          <div class="mini three">
+            <div class="m"><span class="k">Température</span><span class="v num" id="wT">—</span></div>
+            <div class="m"><span class="k">Vent</span><span class="v num" id="wV">—</span></div>
+            <div class="m"><span class="k">Rafales</span><span class="v num" id="wR">—</span></div>
+            <div class="m"><span class="k">Humidité</span><span class="v num" id="wH">—</span></div>
+            <div class="m"><span class="k">Pluie 6 h</span><span class="v num" id="wP">—</span></div>
+            <div class="m"><span class="k">Direction</span><span class="v num" id="wD">—</span></div>
+          </div>
+          <p class="note" id="wNote">—</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><svg style="stroke:var(--accent)"><use href="#i-cmd"/></svg>Commandes</h2>
+        <div class="row">
+          <button class="btn" data-cmd="go">Forcer l'enroulage</button>
+          <button class="btn" data-cmd="metre">Corriger la longueur</button>
+          <button class="btn" data-cmd="vanne">Fermer la vanne</button>
+          <button class="btn danger" data-cmd="reset">Remise à zéro</button>
+        </div>
+        <div class="confirm" id="confirm" hidden>
+          <div id="cfTxt"></div>
+          <label class="field" id="cfField" hidden>Longueur sortie (m)<input id="cfVal" type="number" min="0" max="300" step="0.5" value="150"></label>
+          <div class="row"><button class="btn solid" id="cfOk">Envoyer</button><button class="btn" id="cfNo">Annuler</button></div>
+        </div>
+        <p class="note">Une commande part au prochain contact radio de l'enrouleur (30 s maxi), puis l'enrouleur confirme la réception et l'exécution.</p>
+        <ul class="queue" id="queue"></ul>
+      </div>
+
+      <div class="card simu">
+        <h2>Simulation</h2>
+        <div class="row">
+          <label class="field" style="min-width:170px">Horloge
+            <select id="mult"><option value="1">Temps réel</option><option value="60" selected>× 60 (1 s = 1 min)</option><option value="300">× 300</option></select>
+          </label>
+        </div>
+        <div class="row">
+          <button class="btn" id="simNew">Nouveau cycle : dérouler 285 m</button>
+          <button class="btn" id="simBlock" aria-pressed="false">Bloquer l'enrouleur</button>
+          <button class="btn" id="simPres" aria-pressed="false">Chute de pression</button>
+          <button class="btn" id="simRadio" aria-pressed="false">Couper la liaison radio</button>
+        </div>
+        <p class="note">Logique reprise de ton enrouleur.ino : déroulage, arrêt 30 s, enroulage, alerte à 5 m, fin à 0 m.</p>
+      </div>
+    </section>
+
+    <!-- ============ ALERTES ============ -->
+    <section data-view="alertes" class="card" hidden>
+      <h2>Alertes</h2>
+      <div class="seg" role="tablist" id="aSeg">
+        <button role="tab" data-f="toutes" aria-selected="true">Toutes <span class="num" id="cTout"></span></button>
+        <button role="tab" data-f="actives" aria-selected="false">Actives <span class="num" id="cAct"></span></button>
+        <button role="tab" data-f="historique" aria-selected="false">Historique</button>
+      </div>
+      <ul class="alist" id="alist"></ul>
+    </section>
+
+    <!-- ============ HISTORIQUE ============ -->
+    <section data-view="historique" class="card" hidden>
+      <h2>Historique</h2>
+      <div class="seg" role="tablist" id="hSeg">
+        <button role="tab" data-h="sessions" aria-selected="true">Sessions</button>
+        <button role="tab" data-h="graph" aria-selected="false">Graphiques</button>
+      </div>
+      <div id="hSessions">
+        <ul class="sess" id="sess"></ul>
+        <div class="row" style="margin-top:12px"><button class="btn" id="csvDl">Exporter le rapport (CSV)</button><button class="btn" id="csvCp">Copier le CSV</button><span class="note" id="csvMsg"></span></div>
+        <p class="note">Les sessions avant aujourd'hui sont des exemples. Les cycles lancés dans la simulation s'ajoutent en tête.</p>
+      </div>
+      <div id="hGraph" hidden>
+        <h3 style="font-size:14px;font-weight:600">Vitesse par tranche de 25 m enroulés (session en cours)</h3>
+        <svg class="chart" id="chart" viewBox="0 0 360 170" role="img" aria-label="Vitesse mesurée à chaque tranche de 25 mètres"></svg>
+        <p class="note">La vitesse monte au fil de l'enroulage parce que le diamètre de la bobine augmente : la dose baisse d'autant en fin de passe.</p>
+      </div>
+    </section>
+
+    <!-- ============ RÉGLAGES ============ -->
+    <section data-view="reglages" hidden style="display:grid;gap:14px">
+      <div class="g2">
+        <div class="card">
+          <h2><svg style="stroke:var(--info)"><use href="#i-drop"/></svg>Paramètres d'irrigation</h2>
+          <div class="set" id="setIrr"></div>
+        </div>
+        <div class="card">
+          <h2><svg style="stroke:var(--accent)"><use href="#i-shield"/></svg>Sécurité</h2>
+          <div class="set" id="setSec"></div>
+          <h2><svg style="stroke:var(--warn)"><use href="#i-bell"/></svg>Notifications</h2>
+          <div class="set" id="setNotif"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2><svg style="stroke:var(--accent)"><use href="#i-reel"/></svg>Enrouleur (compteur)</h2>
+        <form class="pgrid" id="pForm">
+          <label class="field">Circonférence roue (cm)<input id="pCirc" type="number" step="0.1" min="1" max="500"></label>
+          <label class="field">Impulsions / tour<input id="pPls" type="number" step="1" min="1" max="10000"></label>
+          <label class="field">Longueur tuyau (m)<input id="pLong" type="number" step="1" min="10" max="2000"></label>
+          <label class="field">Alerte fin proche (m)<input id="pA5" type="number" step="1" min="1" max="30"></label>
+          <label class="field">Alerte arrêt anormal (min)<input id="pArr" type="number" step="1" min="1" max="60"></label>
+          <label class="field">Fin déroulage après (s)<input id="pAr1" type="number" step="1" min="5" max="300"></label>
+        </form>
+        <div class="row"><button class="btn solid" id="pSave">Envoyer à l'enrouleur</button><span class="note" id="pPrec"></span></div>
+      </div>
+      <div class="g2">
+        <div class="card">
+          <h2><svg style="stroke:var(--accent)"><use href="#i-ant"/></svg>Connexion</h2>
+          <div class="set">
+            <div class="srow"><span class="lab">Réseau LoRa 868 MHz</span><span class="lnk ok" id="cLnk">Connecté</span></div>
+            <div class="srow"><span class="lab">Signal</span><span class="num" id="cSig">—</span></div>
+            <div class="srow"><span class="lab">Station de base<small>Heltec V3 · WiFi Livebox</small></span><span class="note" id="cBase">Simulée dans la page</span></div>
+            <div class="srow"><span class="lab">Adresse sur le WiFi</span><span class="num" id="cUrl">—</span></div>
+            <div class="srow" id="distRow" hidden><span class="lab">Adresse à distance (4G)<small>Valable tant que la station tourne</small></span><button class="btn" id="distCp" style="padding:5px 10px;font-size:13px">Copier</button></div>
+            <div id="distBox" hidden style="display:grid;gap:8px;justify-items:center;padding-top:6px">
+              <div id="qr" style="background:#fff;padding:10px;border-radius:10px;line-height:0"></div>
+              <span class="num note" id="distUrl" style="word-break:break-all;text-align:center"></span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2><svg style="stroke:var(--warn)"><use href="#i-sun"/></svg>Position de la parcelle (météo)</h2>
+          <div class="pgrid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+            <label class="field">Latitude<input id="lat" type="number" step="0.0001" value="49.8941"></label>
+            <label class="field">Longitude<input id="lon" type="number" step="0.0001" value="2.2958"></label>
+          </div>
+          <div class="row"><button class="btn" id="wBtn">Actualiser la météo</button></div>
+          <p class="note">Position par défaut : Amiens. Mets celle de ta parcelle.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <a href="#dash" data-v="dash"><svg><use href="#i-home"/></svg>Accueil</a>
+    <a href="#alertes" data-v="alertes"><svg><use href="#i-bell"/></svg>Alertes<span class="badge" data-badge hidden></span></a>
+    <a href="#historique" data-v="historique"><svg><use href="#i-hist"/></svg>Historique</a>
+    <a href="#reglages" data-v="reglages"><svg><use href="#i-gear"/></svg>Réglages</a>
+  </nav>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const fmt=(n,d=0)=>Number(n).toFixed(d).replace('.',',');
+const pad=n=>String(n).padStart(2,'0');
+const hhmm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const dureeHM=s=>{if(!isFinite(s)||s<=0)return '—';const m=Math.round(s/60);return Math.floor(m/60)+' h '+pad(m%60)};
+const ilya=ms=>{const s=Math.max(0,Math.round(ms/1000));if(s<60)return 'il y a '+s+' s';const m=Math.round(s/60);if(m<60)return 'il y a '+m+' min';const h=Math.round(m/60);return h<24?'il y a '+h+' h':'il y a '+Math.round(h/24)+' j'};
+const NBT=12;
+let MODE='simu',lastOk=Date.now();   // 'station' = page servie par la station (PC de test ou Heltec)
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
+
+/* ---------- Réglages ---------- */
+const P={circ:39.7,pls:800,longueur:300,alt5:5,arretMin:10,arret1s:30};      // config.h validé
+const IR={dose:20,cons:22.2,larg:72,debit:32,seuil:5.5};                     // irrigation
+const OPT={vanneAuto:true,nPres:true,nBat:true,nFin:true,nLora:true};
+
+/* ---------- Moteur de simulation (rôle de l'enrouleur) ---------- */
+let mult=60;
+const vitDe=enr=>20.5+0.02*enr;
+const S={now:Date.now(),etat:'ENROULAGE',sortie:152,debut:285,v:0,batt:78,rssi:-97,snr:6.5,pres:6.2,
+  vanne:'Ouverte',bloque:false,chute:false,radioOff:false,lastRx:Date.now(),lastMove:Date.now(),
+  tranches:Array(NBT).fill(null),f:{a5:false,arret:false,lost:false,pres:false,bat:false},outbox:[],
+  sessDebut:Date.now()-(133/21.6)*3600e3,vSum:0,vN:0};
+for(let i=0;i<5;i++)S.tranches[i]=vitDe((i+1)*25);
+let aid=0;
+const alerts=[{id:++aid,t:S.sessDebut,n:'info',titre:'Enroulage démarré',det:'285 m de tuyau sortis',ack:true}];
+function evt(n,titre,det,cat){S.outbox.push({id:++aid,t:S.now,n,titre,det,cat,ack:n==='info'||n==='ok'})}
+
+const day=864e5,d0=new Date();d0.setHours(19,0,0,0);
+const sessions=[
+  {t:d0-1*day,dur:13.2*3600,lg:285,v:21.6,dose:19.4,ok:true},
+  {t:d0-3*day,dur:12.9*3600,lg:280,v:21.7,dose:20.1,ok:true},
+  {t:d0-5*day,dur:9.1*3600,lg:196,v:21.5,dose:20.4,ok:false},
+  {t:d0-7*day,dur:13.4*3600,lg:285,v:21.3,dose:19.8,ok:true}];
+
+function stepSim(dt){
+  S.now+=dt*1000;
+  if(S.etat==='DEROULAGE'){
+    if(S.sortie<S.cible){S.sortie=Math.min(S.cible,S.sortie+1.1*dt);S.v=1.1*3600;S.lastMove=S.now}
+    else{S.v=0;if(S.now-S.lastMove>P.arret1s*1000){S.etat='ENROULAGE';S.debut=S.sortie;S.tranches.fill(null);
+      S.f.a5=S.f.arret=false;S.sessDebut=S.now;S.vSum=S.vN=0;S.vanne='Ouverte';
+      evt('info','Enroulage démarré',fmt(S.sortie)+' m de tuyau sortis')}}
+  }else if(S.etat==='ENROULAGE'){
+    if(S.bloque){S.v=0;if(S.now-S.lastMove>P.arretMin*60e3&&!S.f.arret){S.f.arret=true;
+      evt('crit','Arrêt anormal','Aucun mouvement depuis '+P.arretMin+' min, '+fmt(S.sortie)+' m restants')}}
+    else{
+      const enr=S.debut-S.sortie;S.v=vitDe(enr)+(Math.random()-.5)*.4;S.vSum+=S.v*dt;S.vN+=dt;
+      S.sortie=Math.max(0,S.sortie-S.v/3600*dt);S.lastMove=S.now;
+      if(S.f.arret){S.f.arret=false;evt('ok','Enroulage reparti','')}
+      const e2=S.debut-S.sortie;
+      for(let i=0;i<NBT;i++)if(S.tranches[i]==null&&e2>=(i+1)*25)S.tranches[i]=S.v;
+      if(!S.f.a5&&S.sortie<=P.alt5&&S.sortie>0.5){S.f.a5=true;evt('warn','Fin proche','Plus que '+P.alt5+' m à enrouler')}
+      if(S.sortie<=0.5){S.sortie=0;S.v=0;S.etat='ATTENTE';
+        if(OPT.nFin)evt('info','Fin de course atteinte','Enroulement terminé, '+fmt(S.debut)+' m enroulés');
+        if(OPT.vanneAuto){S.vanne='Fermée';evt('ok','Vanne fermée','Fermeture automatique en fin de course')}
+        const vm=S.vN?S.vSum/S.vN:0;
+        sessions.unshift({t:S.now,dur:(S.now-S.sessDebut)/1000,lg:S.debut,v:vm,dose:IR.debit*1000/(IR.larg*vm),ok:true});renderSess()}
+    }
+  }else S.v=0;
+  // pression
+  const cible=S.vanne==='Fermée'?0:(S.chute?5.1:6.2);
+  S.pres+=(cible-S.pres)*Math.min(1,dt/60)+(S.vanne==='Fermée'?0:(Math.random()-.5)*.04);
+  if(S.vanne!=='Fermée'&&S.pres<IR.seuil&&!S.f.pres){S.f.pres=true;if(OPT.nPres)evt('crit','Pression basse','Pression mesurée : '+fmt(S.pres,1)+' bar · seuil '+fmt(IR.seuil,1)+' bar','pres')}
+  if(S.f.pres&&S.pres>=IR.seuil+0.2){S.f.pres=false;evt('ok','Pression revenue',fmt(S.pres,1)+' bar')}
+  S.batt=Math.max(0,S.batt-dt/3600*0.4);
+  if(S.batt<20&&!S.f.bat){S.f.bat=true;if(OPT.nBat)evt('warn','Batterie faible','Niveau batterie : '+fmt(S.batt)+' %')}
+}
+
+/* ---------- Côté station : ce qu'elle a reçu par radio ---------- */
+let view=null;
+function radio(){
+  if(!S.radioOff){
+    S.lastRx=S.now;S.rssi=-97+Math.round((Math.random()-.5)*6);S.snr=6.5+(Math.random()-.5)*3;
+    while(S.outbox.length)alerts.unshift(S.outbox.shift());
+    if(S.f.lost){S.f.lost=false;alerts.unshift({id:++aid,t:S.now,n:'ok',titre:'Connexion rétablie',det:'Signal LoRa de nouveau disponible',ack:true})}
+    view={etat:S.etat,sortie:S.sortie,debut:S.debut,longueur:P.longueur,v:S.v,batt:S.batt,rssi:S.rssi,snr:S.snr,pres:S.pres,vanne:S.vanne,tranches:S.tranches.slice()};
+  }else if(S.now-S.lastRx>120e3&&!S.f.lost){S.f.lost=true;
+    if(OPT.nLora)alerts.unshift({id:++aid,t:S.now,n:'crit',titre:'Liaison LoRa perdue',det:'Aucun message de l\'enrouleur depuis 2 min',ack:false})}
+}
+
+/* ---------- Commandes ---------- */
+const queue=[];let qid=0;
+function envoyer(label,cmd,val,apply){
+  if(MODE==='station'){post('api/cmd',{cmd,val,label});return}
+  queue.unshift({id:++qid,label,st:'attente',t0:performance.now(),apply});renderQueue()}
+function stepQueue(){
+  const t=performance.now();let ch=false;
+  for(const c of queue){
+    if(c.st==='attente'&&!S.radioOff&&t-c.t0>1500){c.st='recue';c.t1=t;ch=true}
+    else if(c.st==='recue'&&t-c.t1>1200){c.st='faite';c.apply();ch=true;radio()}
+  }
+  if(ch)renderQueue();
+}
+const ST={attente:'En attente du contact radio',recue:'Reçue par l\'enrouleur',faite:'Exécutée'};
+function renderQueue(){$('queue').innerHTML=queue.slice(0,5).map(c=>`<li><span>${c.label}</span><span class="st ${c.st}">${ST[c.st]}</span></li>`).join('')}
+
+/* ---------- Rendu tableau de bord ---------- */
+function render(){
+  const v=view;if(!v)return;
+  const enr=v.etat==='ENROULAGE'?Math.max(0,v.debut-v.sortie):(v.etat==='ATTENTE'?v.debut:0);
+  const pct=v.etat==='ENROULAGE'?Math.min(100,enr/v.debut*100):(v.etat==='ATTENTE'&&v.sortie===0?100:0);
+  $('clock').textContent=new Date(S.now).toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'})+'  '+hhmm(S.now);
+
+  const age=S.now-S.lastRx, ageS=Math.round(age/1000);
+  const lq=age>120e3?['Perdue','crit',0]:(v.rssi<-115||v.snr<0)?['Faible','warn',1]:v.rssi<-105?['Bonne','ok',2]:['Excellente','ok',3];
+  const lt=$('lnkTop');lt.className='lnk '+(age>120e3?'crit':age>45e3?'warn':'ok');
+  lt.querySelector('span').textContent=age>120e3?'LoRa perdu':age>45e3?'LoRa en attente':'LoRa connecté';
+
+  $('kLong').innerHTML=`${fmt(v.longueur)} <small>m</small>`;
+  $('kEnr').innerHTML=`${fmt(enr)} <small>m</small>`;
+  $('kRest').innerHTML=`${fmt(v.sortie)} <small>m</small>`;
+  $('kVit').innerHTML=v.etat==='DEROULAGE'&&v.v>0?`${fmt(v.v/60)} <small>m/min</small>`:`${fmt(v.v,1)} <small>m/h</small>`;
+  const tr=v.etat==='ENROULAGE'&&v.v>0.5?v.sortie/v.v*3600:NaN;
+  $('kTps').textContent=dureeHM(tr);
+  $('kFin').textContent=isFinite(tr)?hhmm(S.now+tr*1000):'—';
+
+  const R=68,C=2*Math.PI*R;
+  $('ring').innerHTML=`<circle cx="85" cy="85" r="${R}" fill="none" stroke="var(--tile)" stroke-width="14"/>`
+    +`<circle cx="85" cy="85" r="${R}" fill="none" stroke="var(--accent)" stroke-width="14" stroke-linecap="round" stroke-dasharray="${C*pct/100} ${C}" transform="rotate(-90 85 85)"/>`
+    +`<text x="85" y="94" text-anchor="middle" font-size="34">${fmt(pct)}<tspan font-size="18"> %</tspan></text>`;
+  $('ringLbl').textContent=v.etat==='DEROULAGE'?'Déroulage en cours':v.etat==='ATTENTE'?'Enrouleur au repos':'Avancement';
+
+  const pos=Math.min(100,v.sortie/v.longueur*100);
+  $('pFill').style.width=(100-pos)+'%';
+  $('pMark').style.left=(100-pos)+'%';
+  $('pMid').textContent=fmt(enr)+' m';$('pMid').style.left=`clamp(40px, calc(${100-pos}% - 22px), calc(100% - 110px))`;
+  $('pTot').textContent=fmt(v.longueur)+' m au total';
+
+  const doseR=v.v>0.5&&v.etat==='ENROULAGE'?IR.debit*1000/(IR.larg*v.v):NaN;
+  $('iDose').textContent=fmt(IR.dose)+' mm';
+  $('iDoseR').textContent=isFinite(doseR)?fmt(doseR,1)+' mm':'—';
+  $('iDeb').textContent=fmt(IR.debit)+' m³/h';
+  $('iLarg').textContent=fmt(IR.larg)+' m';
+  $('iCons').textContent=fmt(IR.cons,1)+' m/h';
+  const ec=v.etat==='ENROULAGE'&&v.v>0.5?(v.v-IR.cons)/IR.cons*100:NaN;
+  const iE=$('iEcart');iE.textContent=isFinite(ec)?(ec>0?'+':'')+fmt(ec)+' %':'—';iE.className='v num '+(isFinite(ec)?(Math.abs(ec)>10?'warn':'ok'):'');
+
+  const pLow=v.vanne!=='Fermée'&&v.pres<IR.seuil;
+  $('sPres').textContent=fmt(Math.max(0,v.pres),1)+' bar';$('sPresBox').className='m'+(pLow?' alarm':'');
+  $('sSeuil').textContent=fmt(IR.seuil,1)+' bar';
+  const sv=$('sVanne');sv.textContent=v.vanne;sv.className='v '+(v.vanne==='Ouverte'?'ok':'warn');
+  const fdc=v.etat==='ATTENTE'&&v.sortie===0;const sf=$('sFdc');sf.textContent=fdc?'Atteinte':'Inactive';sf.className='v '+(fdc?'warn':'');
+  const sa=$('sAlP');sa.textContent=pLow?'Pression basse':'Aucune';sa.className='v '+(pLow?'crit':'ok');
+
+  const bars=[0,1,2,3].map(i=>`<i style="height:${5+i*3.5}px" class="${i<lq[2]?'on':''}"></i>`).join('');
+  const lQ=$('lQual');lQ.innerHTML=`<span class="sig">${bars}</span>${lq[0]}`;lQ.className='v '+lq[1];
+  $('lBat').textContent=fmt(v.batt)+' %';
+  $('lAge').textContent=ageS<90?ageS+' s':Math.round(ageS/60)+' min';
+  $('lDet').textContent=`RSSI ${v.rssi} dBm · SNR ${fmt(v.snr,1)} dB · batterie ${fmt(3.2+v.batt/100,2)} V`;
+  $('cSig').textContent=`${v.rssi} dBm · SNR ${fmt(v.snr,1)}`;
+  const cl=$('cLnk');cl.textContent=age>120e3?'Perdu':'Connecté';cl.className='lnk '+(age>120e3?'crit':'ok');
+
+  renderAlerts();if(curH==='graph')drawChart(v.tranches);
+}
+
+/* ---------- Alertes ---------- */
+let aFilter='toutes',aSig='';
+const AIC={crit:'i-warn',warn:'i-batt',info:'i-flag',ok:'i-check'};
+function renderAlerts(force){
+  const act=alerts.filter(a=>!a.ack);
+  document.querySelectorAll('[data-badge]').forEach(b=>{b.hidden=!act.length;b.textContent=act.length});
+  $('cTout').textContent=alerts.length;$('cAct').textContent=act.length;
+  const sig=aFilter+alerts.length+':'+act.length+':'+Math.floor(S.now/60000);
+  if(sig===aSig&&!force)return;aSig=sig;
+  const list=aFilter==='actives'?act:aFilter==='historique'?alerts.filter(a=>a.ack):alerts;
+  $('alist').innerHTML=list.length?list.slice(0,40).map(a=>`<li class="al ${a.n}"><svg><use href="#${a.titre.startsWith('Batterie')?'i-batt':a.titre.includes('LoRa')||a.titre.includes('Connexion')?'i-ant':AIC[a.n]}"/></svg><div><b>${a.titre}</b>${a.det?`<p>${a.det}</p>`:''}</div><time>${ilya(S.now-a.t)}</time>${a.ack?'':`<button class="btn ack" data-ack="${a.id}">Acquitter</button>`}</li>`).join(''):'<li class="empty">Aucune alerte dans cette liste.</li>';
+}
+$('alist').addEventListener('click',e=>{const b=e.target.closest('[data-ack]');if(!b)return;const a=alerts.find(x=>x.id==b.dataset.ack);if(a){a.ack=true;renderAlerts(true)}if(MODE==='station')post('api/ack',{id:+b.dataset.ack})});
+$('aSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;aFilter=b.dataset.f;
+  $('aSeg').querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected',x===b));renderAlerts(true)});
+
+/* ---------- Historique ---------- */
+function renderSess(){
+  $('sess').innerHTML=sessions.map(s=>{const d=new Date(s.t);
+    return `<li><div><div class="d">${d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'long'})}</div><div class="s num">${fmt(s.v,1)} m/h · ${fmt(s.lg)} m</div></div>`
+    +`<div class="s num">${dureeHM(s.dur)}<br>${fmt(s.dose,1)} mm</div>`
+    +`<span class="${s.ok?'ok':'ko'}">${s.ok?'Terminée':'Interrompue'}</span></li>`}).join('');
+}
+function csv(){return 'date;duree_h;longueur_m;vitesse_moy_mh;dose_mm;statut\n'+sessions.map(s=>{const d=new Date(s.t);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${hhmm(s.t)};${fmt(s.dur/3600,2)};${fmt(s.lg)};${fmt(s.v,1)};${fmt(s.dose,1)};${s.ok?'terminee':'interrompue'}`}).join('\n')}
+$('csvDl').onclick=()=>{try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv()],{type:'text/csv'}));a.download='enrouleur_sessions.csv';document.body.appendChild(a);a.click();a.remove();
+  $('csvMsg').textContent='Si rien ne se télécharge ici, utilise « Copier le CSV ». Sur la station, le téléchargement marchera.'}catch(e){$('csvMsg').textContent='Téléchargement bloqué ici.'}};
+$('csvCp').onclick=()=>{navigator.clipboard.writeText(csv()).then(()=>$('csvMsg').textContent='CSV copié.',()=>$('csvMsg').textContent='Copie refusée par le navigateur.')};
+let curH='sessions';
+$('hSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;curH=b.dataset.h;
+  $('hSeg').querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  $('hSessions').hidden=curH!=='sessions';$('hGraph').hidden=curH!=='graph';if(view)drawChart(view.tranches)});
+
+function drawChart(t){
+  const W=360,H=170,l=30,r=6,top=12,b=26,vals=t.filter(x=>x!=null);
+  const yMax=Math.max(30,Math.ceil(Math.max(0,...vals)/5)*5),bw=(W-l-r)/NBT,ys=v=>top+(H-top-b)*(1-v/yMax);
+  let s='';
+  for(let g=0;g<=yMax;g+=10)s+=`<line x1="${l}" x2="${W-r}" y1="${ys(g)}" y2="${ys(g)}" stroke="var(--line)"/><text x="${l-5}" y="${ys(g)+3}" text-anchor="end">${g}</text>`;
+  const yc=ys(IR.cons);s+=`<line x1="${l}" x2="${W-r}" y1="${yc}" y2="${yc}" stroke="var(--warn)" stroke-dasharray="4 4"/><text x="${W-r}" y="${yc-4}" text-anchor="end" style="fill:var(--warn)">consigne ${fmt(IR.cons,1)}</text>`;
+  t.forEach((v,i)=>{const x=l+i*bw+3,w=bw-6;
+    s+=v==null?`<rect x="${x}" y="${ys(yMax*.06)}" width="${w}" height="${ys(0)-ys(yMax*.06)}" fill="var(--tile)" rx="2"/>`
+      :`<rect x="${x}" y="${ys(v)}" width="${w}" height="${ys(0)-ys(v)}" fill="var(--accent)" rx="2"><title>${(i+1)*25} m : ${fmt(v,1)} m/h</title></rect>`;
+    if(i%2===1)s+=`<text x="${x+w/2}" y="${H-10}" text-anchor="middle">${(i+1)*25}</text>`});
+  s+=`<text x="${l}" y="${H}" text-anchor="start">m enroulés</text><text x="${l}" y="${top-3}" text-anchor="start">m/h</text>`;
+  $('chart').innerHTML=s;
+}
+
+/* ---------- Météo (Open-Meteo, marche sur la station ; repli simulé ici) ---------- */
+function showW(w,src){$('wT').textContent=fmt(w.t,1)+' °C';$('wV').textContent=fmt(w.v,1)+' km/h';$('wR').textContent=fmt(w.r,1)+' km/h';
+  $('wH').textContent=fmt(w.h)+' %';$('wP').textContent=fmt(w.p,1)+' mm';$('wD').textContent=fmt(w.d)+' °';$('wNote').textContent=src}
+async function meteo(){
+  const la=$('lat').value,lo=$('lon').value;
+  try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m&hourly=precipitation&forecast_hours=6&timezone=auto`);
+    if(!r.ok)throw 0;const j=await r.json(),c=j.current;
+    showW({t:c.temperature_2m,v:c.wind_speed_10m,r:c.wind_gusts_10m,h:c.relative_humidity_2m,d:c.wind_direction_10m,p:(j.hourly.precipitation||[]).reduce((a,b)=>a+b,0)},'Open-Meteo · mise à jour '+hhmm(Date.now()));
+  }catch(e){showW({t:14.8,v:13.2,r:24.5,h:71,p:0,d:250},'Exemple : la météo réelle (Open-Meteo) ne peut pas se charger dans cet aperçu, elle marchera sur la station.')}
+}
+$('wBtn').onclick=meteo;
+
+/* ---------- Commandes : interface ---------- */
+let pending=null;
+document.querySelectorAll('[data-cmd]').forEach(b=>b.addEventListener('click',()=>{
+  pending=b.dataset.cmd;
+  $('cfTxt').textContent={go:'Forcer le passage en enroulage, sans toucher aux mètres ?',metre:'Corriger la longueur de tuyau sortie :',vanne:'Fermer la vanne ? En vrai, fermeture lente pour éviter le coup de bélier.',reset:'Remettre le compteur à zéro ? L\'enrouleur repasse au repos.'}[pending];
+  $('cfField').hidden=pending!=='metre';$('confirm').hidden=false;
+  if(pending==='metre'&&view)$('cfVal').value=view.sortie.toFixed(1);
+}));
+$('cfNo').onclick=()=>{$('confirm').hidden=true;pending=null};
+$('cfOk').onclick=()=>{
+  const c=pending;$('confirm').hidden=true;pending=null;
+  if(c==='go')envoyer('Forcer l\'enroulage','go',null,()=>{S.etat='ENROULAGE';S.debut=S.sortie;S.tranches.fill(null);S.f.a5=S.f.arret=false;S.lastMove=S.now;S.sessDebut=S.now;S.vSum=S.vN=0});
+  if(c==='vanne')envoyer('Fermer la vanne','vanne',null,()=>{S.vanne='Fermée';evt('ok','Vanne fermée','Fermeture commandée depuis l\'interface')});
+  if(c==='reset')envoyer('Remise à zéro','reset',null,()=>{S.sortie=0;S.etat='ATTENTE';S.tranches.fill(null)});
+  if(c==='metre'){const m=Math.max(0,Math.min(P.longueur,parseFloat($('cfVal').value)||0));
+    envoyer('Longueur sortie → '+fmt(m,1)+' m','metre',m,()=>{S.sortie=m;if(S.etat==='ENROULAGE'&&m>S.debut)S.debut=m})}
+};
+
+/* ---------- Réglages : steppers et interrupteurs ---------- */
+function stepper(host,lab,sub,key,step,dec,unit,min,max,cmd){
+  const d=document.createElement('div');d.className='srow';
+  d.innerHTML=`<span class="lab">${lab}${sub?`<small>${sub}</small>`:''}</span><span class="step"><button type="button" aria-label="Diminuer">−</button><output class="num"></output><button type="button" aria-label="Augmenter">+</button></span>`;
+  const o=d.querySelector('output'),[mi,pl]=d.querySelectorAll('button');
+  const show=()=>o.textContent=fmt(IR[key],dec)+' '+unit;show();
+  const ch=s=>{IR[key]=Math.round(Math.min(max,Math.max(min,IR[key]+s))*10)/10;
+    if(key==='dose'||key==='larg'||key==='debit')IR.cons=Math.round(IR.debit*1000/(IR.larg*IR.dose)*10)/10;
+    if(key==='cons')IR.dose=Math.round(IR.debit*1000/(IR.larg*IR.cons)*10)/10;
+    rebuildIrr();sendCfg()};
+  mi.onclick=()=>ch(-step);pl.onclick=()=>ch(step);host.appendChild(d);
+}
+function toggle(host,lab,sub,key){
+  const d=document.createElement('div');d.className='srow';
+  d.innerHTML=`<span class="lab">${lab}${sub?`<small>${sub}</small>`:''}</span><button type="button" class="sw" role="switch" aria-checked="${OPT[key]}" aria-label="${lab}"></button>`;
+  const b=d.querySelector('button');b.onclick=()=>{OPT[key]=!OPT[key];b.setAttribute('aria-checked',OPT[key]);sendCfg()};host.appendChild(d);
+}
+function sendCfg(){if(MODE==='station')post('api/cmd',{cmd:'cfg',val:{IR,OPT}})}
+function rebuildIrr(){
+  $('setIrr').innerHTML='';
+  stepper($('setIrr'),'Dose cible','La consigne de vitesse suit','dose',1,0,'mm',5,60);
+  stepper($('setIrr'),'Consigne vitesse','La dose suit','cons',0.5,1,'m/h',5,80);
+  stepper($('setIrr'),'Largeur arrosée','','larg',2,0,'m',20,120);
+  stepper($('setIrr'),'Débit canon','','debit',1,0,'m³/h',5,120);
+  if(view)render();
+}
+rebuildIrr();
+function buildSec(){
+  $('setSec').innerHTML='';$('setNotif').innerHTML='';
+  stepper($('setSec'),'Seuil alerte pression','','seuil',0.1,1,'bar',1,12);
+  toggle($('setSec'),'Vanne automatique','Fermeture en fin de course','vanneAuto');
+  toggle($('setNotif'),'Alertes pression','','nPres');
+  toggle($('setNotif'),'Alerte batterie faible','Sous 20 %','nBat');
+  toggle($('setNotif'),'Fin de course','','nFin');
+  toggle($('setNotif'),'Liaison LoRa perdue','Après 2 min sans message','nLora');
+}
+buildSec();
+
+const PF={pCirc:'circ',pPls:'pls',pLong:'longueur',pA5:'alt5',pArr:'arretMin',pAr1:'arret1s'};
+for(const k in PF)$(k).value=P[PF[k]];
+function majPrec(){const c=parseFloat($('pCirc').value),p=parseFloat($('pPls').value);$('pPrec').textContent=c>0&&p>0?`Précision : ${fmt(c*10/p,3)} mm par impulsion`:''}
+majPrec();$('pCirc').oninput=$('pPls').oninput=majPrec;
+$('pForm').addEventListener('submit',e=>e.preventDefault());
+$('pSave').onclick=()=>{const n={};for(const k in PF){const v=parseFloat($(k).value);if(isFinite(v))n[PF[k]]=v}
+  envoyer('Réglages compteur ('+Object.keys(n).length+' valeurs)','params',n,()=>Object.assign(P,n));location.hash='dash'};
+
+/* ---------- Simulation : boutons ---------- */
+$('mult').onchange=e=>{mult=+e.target.value;if(MODE==='station')post('api/cmd',{cmd:'mult',val:mult})};
+$('simNew').onclick=()=>{if(MODE==='station'){post('api/cmd',{cmd:'sim_new'});return}S.etat='DEROULAGE';S.sortie=0;S.cible=285;S.tranches.fill(null);S.f.a5=S.f.arret=false;S.lastMove=S.now;S.vanne='Ouverte';
+  evt('info','Déroulage démarré','Le compteur suit la sortie du tuyau')};
+const tg=(id,k)=>$(id).onclick=e=>{S[k]=!S[k];e.currentTarget.setAttribute('aria-pressed',S[k]);if(MODE==='station')post('api/cmd',{cmd:'sim_'+k})};
+tg('simBlock','bloque');tg('simPres','chute');tg('simRadio','radioOff');
+
+/* ---------- Navigation ---------- */
+const TITLES={dash:'Suivi et pilotage de l\'enrouleur',alertes:'Alertes',historique:'Rapports et historique',reglages:'Paramètres et contrôle'};
+function route(){const v=(location.hash||'#dash').slice(1),k=TITLES[v]?v:'dash';
+  document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.dataset.view!==k);
+  document.querySelectorAll('a[data-v]').forEach(a=>{if(a.dataset.v===k)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+  $('vTitle').textContent=TITLES[k];renderAlerts(true);if(k==='historique'&&view&&curH==='graph')drawChart(view.tranches);window.scrollTo(0,0)}
+window.addEventListener('hashchange',route);
+
+/* ---------- Mode station : la page lit l'API de la station ---------- */
+let sessSig='',irSig='';
+function applyStation(d){
+  view=d.view;S.now=d.now;S.lastRx=d.lastRx;
+  alerts.length=0;alerts.push(...d.alerts);
+  queue.length=0;queue.push(...d.cmds);renderQueue();
+  Object.assign(P,d.P);Object.assign(OPT,d.OPT);
+  const is=JSON.stringify(d.IR)+JSON.stringify(d.OPT);if(is!==irSig){irSig=is;Object.assign(IR,d.IR);rebuildIrr();buildSec()}
+  const ss=JSON.stringify(d.sessions);if(ss!==sessSig){sessSig=ss;sessions.length=0;sessions.push(...d.sessions);renderSess()}
+  S.bloque=d.sim.bloque;S.chute=d.sim.chute;S.radioOff=d.sim.radioOff;mult=d.sim.mult;
+  $('simBlock').setAttribute('aria-pressed',S.bloque);$('simPres').setAttribute('aria-pressed',S.chute);$('simRadio').setAttribute('aria-pressed',S.radioOff);
+  if(document.activeElement!==$('mult'))$('mult').value=String(d.sim.mult);
+  $('cUrl').textContent=d.url||location.origin;
+  if(d.urlDistant&&d.urlDistant!==distUrl)showDistant(d.urlDistant);
+  render();
+}
+let distUrl=null;
+function showDistant(u){
+  distUrl=u;$('distRow').hidden=false;$('distBox').hidden=false;$('distUrl').textContent=u;
+  $('distCp').onclick=()=>navigator.clipboard.writeText(u).then(()=>$('distCp').textContent='Copié',()=>{});
+  const draw=()=>{try{const q=qrcode(0,'M');q.addData(u);q.make();$('qr').innerHTML=q.createSvgTag(5,0)}catch(e){$('qr').hidden=true}};
+  if(window.qrcode)draw();else{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';s.onload=draw;s.onerror=()=>{$('qr').hidden=true};document.head.appendChild(s)}
+}
+function startStation(){
+  $('banner').textContent='Station de test : ton PC joue le rôle de la Heltec. Les données sont simulées par le PC et identiques sur tous tes écrans.';
+  $('cBase').textContent='PC de test';
+  for(const k in PF)$(k).value=P[PF[k]];majPrec();
+  setInterval(async()=>{try{const r=await fetch('api/etat',{cache:'no-store'});applyStation(await r.json());lastOk=Date.now()}
+    catch(e){if(Date.now()-lastOk>5000){const lt=$('lnkTop');lt.className='lnk crit';lt.querySelector('span').textContent='Station injoignable'}}},1000);
+}
+
+/* ---------- Démarrage ---------- */
+async function boot(){
+  radio();renderSess();renderQueue();route();render();meteo();
+  try{
+    const ctl=new AbortController();setTimeout(()=>ctl.abort(),1500);
+    const r=await fetch('api/etat',{cache:'no-store',signal:ctl.signal});
+    if(r.ok){const d=await r.json();if(d&&d.view){MODE='station';applyStation(d);startStation();return}}
+  }catch(e){}
+  setInterval(()=>{stepSim(0.25*mult);radio();stepQueue();render()},250);
+}
+boot();
+})();
+</script>
+
+</body>
+</html>
